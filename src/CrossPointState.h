@@ -11,12 +11,13 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   friend class PersistableStore<CrossPointState>;
 
  public:
-  static constexpr uint8_t SLEEP_RECENT_COUNT = 16;
+  static constexpr uint8_t SLEEP_AVOID_REPEAT_LOOKBACK = 5;
 
   std::string openEpubPath;
-  uint16_t recentSleepImages[SLEEP_RECENT_COUNT] = {};  // circular buffer of recent wallpaper indices
-  uint8_t recentSleepPos = 0;                           // next write slot
-  uint8_t recentSleepFill = 0;                          // valid entries (0..SLEEP_RECENT_COUNT)
+  uint32_t sleepLcgCount = 0;
+  uint32_t sleepLcgState = 0;
+  uint32_t sleepOverlayLcgCount = 0;
+  uint32_t sleepOverlayLcgState = 0;
   uint8_t readerActivityLoadCount = 0;
   bool lastSleepFromReader = false;
   bool showBootScreen = true;
@@ -25,12 +26,11 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc);
 
-  // Returns true if idx was shown within the last checkCount picks.
-  // Walks backwards from the most recently written slot.
-  bool isRecentSleep(uint16_t idx, uint8_t checkCount) const;
+  void getSleepLCG(uint32_t& seed, uint32_t& state, uint16_t& indexesLeft, uint16_t& indexesTotal) const;
+  void getSleepOverlayLCG(uint32_t& seed, uint32_t& state, uint16_t& indexesLeft, uint16_t& indexesTotal) const;
 
-  void pushRecentSleep(uint16_t idx);
+  void setSleepLCG(uint32_t seed, uint32_t state, uint16_t indexesLeft, uint16_t indexesTotal);
+  void setSleepOverlayLCG(uint32_t seed, uint32_t state, uint16_t indexesLeft, uint16_t indexesTotal);
 };
 
-// Helper macro to access state
 #define APP_STATE CrossPointState::getInstance()

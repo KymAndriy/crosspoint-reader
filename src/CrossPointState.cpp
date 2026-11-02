@@ -1,31 +1,47 @@
 #include "CrossPointState.h"
 
-#include <Logging.h>
+namespace {
 
-#include <algorithm>
-#include <cstring>
-
-bool CrossPointState::isRecentSleep(uint16_t idx, uint8_t checkCount) const {
-  const uint8_t effectiveCount = std::min(checkCount, recentSleepFill);
-  for (uint8_t i = 0; i < effectiveCount; i++) {
-    const uint8_t slot = (recentSleepPos + SLEEP_RECENT_COUNT - 1 - i) % SLEEP_RECENT_COUNT;
-    if (recentSleepImages[slot] == idx) return true;
-  }
-  return false;
+void getLCG(uint32_t packedState, uint32_t packedCount, uint32_t& seed, uint32_t& state, uint16_t& indexesLeft,
+            uint16_t& indexesTotal) {
+  indexesLeft = packedCount >> 16;
+  indexesTotal = packedCount & 0xffff;
+  seed = packedState >> 16;
+  state = packedState & 0xffff;
 }
 
-void CrossPointState::pushRecentSleep(uint16_t idx) {
-  recentSleepImages[recentSleepPos] = idx;
-  recentSleepPos = (recentSleepPos + 1) % SLEEP_RECENT_COUNT;
-  if (recentSleepFill < SLEEP_RECENT_COUNT) recentSleepFill++;
+void setLCG(uint32_t& packedState, uint32_t& packedCount, uint32_t seedVal, uint32_t stateVal, uint16_t indexesLeftVal,
+            uint16_t indexesTotalVal) {
+  packedCount = (static_cast<uint32_t>(indexesLeftVal) << 16) | indexesTotalVal;
+  packedState = (seedVal << 16) | (stateVal & 0xffff);
+}
+
+}  // namespace
+
+void CrossPointState::getSleepLCG(uint32_t& seed, uint32_t& state, uint16_t& indexesLeft,
+                                  uint16_t& indexesTotal) const {
+  getLCG(sleepLcgState, sleepLcgCount, seed, state, indexesLeft, indexesTotal);
+}
+
+void CrossPointState::getSleepOverlayLCG(uint32_t& seed, uint32_t& state, uint16_t& indexesLeft,
+                                         uint16_t& indexesTotal) const {
+  getLCG(sleepOverlayLcgState, sleepOverlayLcgCount, seed, state, indexesLeft, indexesTotal);
+}
+
+void CrossPointState::setSleepLCG(uint32_t seed, uint32_t state, uint16_t indexesLeft, uint16_t indexesTotal) {
+  setLCG(sleepLcgState, sleepLcgCount, seed, state, indexesLeft, indexesTotal);
+}
+
+void CrossPointState::setSleepOverlayLCG(uint32_t seed, uint32_t state, uint16_t indexesLeft, uint16_t indexesTotal) {
+  setLCG(sleepOverlayLcgState, sleepOverlayLcgCount, seed, state, indexesLeft, indexesTotal);
 }
 
 void CrossPointState::toJson(JsonDocument& doc) const {
   doc["openEpubPath"] = openEpubPath;
-  JsonArray recentArr = doc["recentSleepImages"].to<JsonArray>();
-  for (int i = 0; i < SLEEP_RECENT_COUNT; i++) recentArr.add(recentSleepImages[i]);
-  doc["recentSleepPos"] = recentSleepPos;
-  doc["recentSleepFill"] = recentSleepFill;
+  doc["sleepLcgCount"] = sleepLcgCount;
+  doc["sleepLcgState"] = sleepLcgState;
+  doc["sleepOverlayLcgCount"] = sleepOverlayLcgCount;
+  doc["sleepOverlayLcgState"] = sleepOverlayLcgState;
   doc["readerActivityLoadCount"] = readerActivityLoadCount;
   doc["lastSleepFromReader"] = lastSleepFromReader;
   doc["showBootScreen"] = showBootScreen;
@@ -33,21 +49,13 @@ void CrossPointState::toJson(JsonDocument& doc) const {
 
 bool CrossPointState::fromJson(JsonVariantConst doc) {
   openEpubPath = doc["openEpubPath"] | "";
-  memset(recentSleepImages, 0, sizeof(recentSleepImages));
-  JsonArrayConst recentArr = doc["recentSleepImages"];
-  const int actualCount =
-      recentArr.isNull() ? 0 : std::min(static_cast<int>(recentArr.size()), static_cast<int>(SLEEP_RECENT_COUNT));
-  for (int i = 0; i < actualCount; i++) recentSleepImages[i] = recentArr[i] | static_cast<uint16_t>(0);
-  recentSleepPos = doc["recentSleepPos"] | static_cast<uint8_t>(0);
-  if (recentSleepPos >= SLEEP_RECENT_COUNT) recentSleepPos = actualCount > 0 ? recentSleepPos % SLEEP_RECENT_COUNT : 0;
-  recentSleepFill = doc["recentSleepFill"] | static_cast<uint8_t>(0);
-  recentSleepFill = static_cast<uint8_t>(std::min(static_cast<int>(recentSleepFill), actualCount));
-  // Migrate legacy single-image field from old state.json (pre-recency-buffer).
-  // Only seeds the buffer if the new buffer is empty (fresh migration, not a resave).
-  if (recentSleepFill == 0 && !doc["lastSleepImage"].isNull()) {
-    const uint8_t legacy = doc["lastSleepImage"] | static_cast<uint8_t>(UINT8_MAX);
-    if (legacy != UINT8_MAX) pushRecentSleep(static_cast<uint16_t>(legacy));
-  }
+
+  sleepLcgCount = doc["sleepLcgCount"] | static_cast<uint32_t>(0);
+  sleepLcgState = doc["sleepLcgState"] | static_cast<uint32_t>(0);
+
+  sleepOverlayLcgCount = doc["sleepOverlayLcgCount"] | static_cast<uint32_t>(0);
+  sleepOverlayLcgState = doc["sleepOverlayLcgState"] | static_cast<uint32_t>(0);
+
   readerActivityLoadCount = doc["readerActivityLoadCount"] | static_cast<uint8_t>(0);
   lastSleepFromReader = doc["lastSleepFromReader"] | false;
   showBootScreen = doc["showBootScreen"] | true;
